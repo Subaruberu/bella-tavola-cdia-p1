@@ -1,10 +1,10 @@
 ---
 language: pt
 tags:
-	- sklearn
-	- classification
-	- fraud-detection
-	- mlops
+  - sklearn
+  - classification
+  - fraud-detection
+  - mlops
 ---
 
 # mlops-fraud-v1
@@ -17,7 +17,7 @@ Modelo de classificação binária para detecção de transações fraudulentas.
 from huggingface_hub import hf_hub_download
 import joblib
 
-model = joblib.load(hf_hub_download("seu-usuario/mlops-fraud-v1", "model.pkl"))
+model = joblib.load(hf_hub_download("Subaruu/mlops-fraud-v1", "model.pkl"))
 features = [[250.0, 14, 12.5, 1, 0, 0.3]]
 prediction = model.predict(features)
 ```
@@ -41,9 +41,9 @@ prediction = model.predict(features)
 
 ## Dependências
 
-- scikit-learn
-- joblib
-- numpy
+- scikit-learn==1.8.0
+- joblib==1.5.3
+- numpy==2.4.4
 
 ## Limitações
 
