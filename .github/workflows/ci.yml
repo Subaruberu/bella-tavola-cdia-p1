@@ -55,3 +55,4 @@ jobs:
         run: cd e03 && pytest tests/ -v --tb=short
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_REPO_ID: ${{ secrets.HF_REPO_ID }}
