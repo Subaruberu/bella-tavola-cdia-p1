@@ -25,5 +25,33 @@ jobs:
           pip install -r e02/requirements.txt
 
       - name: Rodar testes
+        run: cd e02 && pytest tests/ -v --tb=short
+
+  integracao:
+    runs-on: ubuntu-latest
+    needs: verificar-api
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Baixar o codigo
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar dependencias
         run: |
-          cd e02 && pytest tests/ -v --tb=short
+          pip install --upgrade pip
+          pip install -r e03/requirements.txt
+
+      - name: Verificar autenticacao com Hugging Face
+        run: python3 -c "import os; assert os.environ.get('HF_TOKEN'), 'HF_TOKEN nao configurado'"
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+
+      - name: Rodar testes de integracao
+        run: cd e03 && pytest tests/ -v --tb=short
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
