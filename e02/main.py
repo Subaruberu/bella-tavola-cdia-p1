@@ -21,9 +21,9 @@ async def root():
     return {
         "restaurante": "Bella Tavola",
         "mensagem": "Bem-vindo à nossa API",
-        "chef": "João Mendes", 
+        "chef": "Erick Jacquin ", 
         "cidade": "São Paulo", 
-        "especialidade": "Culinária Japonesa"
+        "especialidade": "Culinária Francesa"
     }
     
 @app.exception_handler(RequestValidationError)
