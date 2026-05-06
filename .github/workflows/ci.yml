@@ -1,0 +1,33 @@
+name: CI — Bella Tavola
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  verificar-api:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Baixar o código
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar dependências
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Rodar testes smoke (pull request)
+        if: github.event_name == 'pull_request'
+        run: python -m pytest tests/ -v --tb=short -m smoke
+
+      - name: Rodar todos os testes (push para main)
+        if: github.event_name == 'push'
+        run: python -m pytest tests/ -v --tb=short
