@@ -1,0 +1,23 @@
+# ATENÇÃO: este Dockerfile é para o Exercício 9.4 (Desafio)
+# Ele demonstra POR QUE Alpine falha para projetos de ML
+#
+# Alpine usa musl libc, não glibc.
+# Os wheels do PyPI para scikit-learn e numpy são compilados para glibc.
+# O pip não encontra wheels compatíveis e tenta compilar do fonte,
+# o que exige gcc, headers de desenvolvimento, etc — não presentes na imagem mínima.
+#
+# Resultado esperado: erro durante pip install de scikit-learn/numpy
+# Para fins educacionais — NÃO usar em produção sem configuração adicional.
+
+FROM python:3.11-alpine
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+EXPOSE 8000
+
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

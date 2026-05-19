@@ -4,9 +4,8 @@ import numpy as np
 import pandas as pd
 from sklearn.datasets import make_classification
 
-
 def gerar_dataset(
-    n_samples: int = 2000,
+    n_samples: int = 2000
     seed: int = 42,
     proporcao_positivos: float = 0.15,
 ) -> Tuple[pd.DataFrame, np.ndarray, np.ndarray]:
