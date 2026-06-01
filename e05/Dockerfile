@@ -1,31 +1,51 @@
-# Imagem base: Python 3.11 mínimo (Debian slim)
-# python:3.11-slim ≈ 130MB — equilíbrio certo para projetos que usam scikit-learn/numpy
-# NÃO usar python:3.11-alpine: pacotes de ML compilados para glibc falham no musl libc do Alpine
-FROM python:3.11-slim
+# ── Estágio 1: builder ────────────────────────────────────────────────────────
+# Tem tudo que é necessário para INSTALAR as dependências.
+# Compiladores, headers e cache do pip ficam aqui — e são descartados depois.
+FROM python:3.11-slim AS builder
 
-# Diretório de trabalho dentro do contêiner
-# Todos os comandos seguintes (COPY, RUN, CMD) operam relativos a /app
 WORKDIR /app
 
-# Copia APENAS o requirements.txt primeiro — antes do código
-# Motivo: cache de layers. O pip install só reexecuta quando requirements.txt muda.
-# Se o COPY . . viesse antes, qualquer alteração em qualquer .py invalidaria o pip install.
 COPY requirements.txt .
 
-# Instala as dependências dentro da imagem
-# --no-cache-dir: não guarda cache do pip na imagem (reduz o tamanho final)
-RUN pip install --no-cache-dir -r requirements.txt
+# --prefix=/install: instala os pacotes em /install em vez de /usr/local
+# Isso torna fácil copiar apenas os pacotes para a imagem final (COPY --from=builder)
+# --no-cache-dir: não guarda cache do pip (reduz tamanho do estágio builder)
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 
-# Copia o restante do código DEPOIS das dependências
-# Mudanças no código não invalidam a camada do pip install
+
+# ── Estágio 2: final ──────────────────────────────────────────────────────────
+# Imagem limpa — começa do zero, sem compiladores, sem cache, sem resíduos de build.
+# python:3.11-slim ≈ 130MB — equilíbrio certo para projetos que usam scikit-learn/numpy
+# NÃO usar python:3.11-alpine: wheels de ML compilados para glibc falham no musl libc do Alpine
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Copia APENAS os pacotes instalados do estágio builder
+# --from=builder: busca no estágio anterior (descartado após este passo)
+COPY --from=builder /install /usr/local
+
+# Copia o código da aplicação
+# O .dockerignore garante que __pycache__, .env, tests/, *.pkl etc. ficam de fora
 COPY . .
 
+# ── Segurança: usuário não-root ───────────────────────────────────────────────
+# Por padrão os processos rodam como root dentro do contêiner — desnecessariamente poderoso.
+# A API só precisa ler arquivos e servir HTTP.
+# addgroup/adduser --system: cria contas de sistema sem senha e sem shell de login
+RUN addgroup --system appgroup && \
+    adduser --system --ingroup appgroup appuser && \
+    chown -R appuser:appgroup /app
+
+# Troca para o usuário sem privilégios
+# Todas as instruções seguintes (CMD) rodam como appuser
+USER appuser
+
 # Documenta que a aplicação escuta na porta 8000
-# EXPOSE não abre a porta — o -p no docker run é que faz isso
+# EXPOSE é documentação — o -p no docker run (ou ports: no Compose) é que abre a porta
 EXPOSE 8000
 
-# Comando padrão ao iniciar o contêiner
-# Forma de lista JSON: não usa shell intermediário (mais correto para sinais do SO)
-# --host 0.0.0.0: escuta em todas as interfaces de rede do contêiner
-#   sem isso, uvicorn ouve em 127.0.0.1 (loopback interno) e o -p não consegue rotear
+# Forma de lista JSON: não usa shell intermediário (importante para propagação de sinais)
+# --host 0.0.0.0: escuta em todas as interfaces do contêiner
+#   sem isso, uvicorn ouve só em 127.0.0.1 (loopback interno) e o roteamento de portas falha
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
