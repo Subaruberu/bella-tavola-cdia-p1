@@ -1,16 +1,18 @@
 # e05 — Docker para MLOps: Bella Tavola 🐳
 
-Este diretório contém a API Bella Tavola contêinerizada com Docker, conforme o caderno `e05-p01`.
+Contêinerização completa da API Bella Tavola com Docker e Docker Compose.
 
 ## Estrutura
 
 ```
 e05/
-├── Dockerfile          # Imagem principal (python:3.11-slim)
-├── Dockerfile.alpine   # Exercício 9.4 — demonstra falha com Alpine + scikit-learn
-├── .dockerignore       # Arquivos excluídos do build context
-├── main.py             # Entry point da API FastAPI
-├── requirements.txt    # Dependências Python
+├── Dockerfile              # Multi-stage build + usuário não-root (python:3.11-slim)
+├── Dockerfile.alpine       # Exercício 9.4 — demonstra falha com Alpine + scikit-learn
+├── .dockerignore           # Exclui do build context: .env, tests/, *.pkl, __pycache__ etc.
+├── docker-compose.yml      # Orquestra API + PostgreSQL + Nginx com healthcheck
+├── nginx.conf              # Proxy reverso: porta 80 → uvicorn porta 8000
+├── main.py                 # Entry point da API FastAPI
+├── requirements.txt        # Dependências Python
 ├── config.py
 ├── models/
 ├── routers/
@@ -19,65 +21,114 @@ e05/
 
 ## Como usar
 
-### Build da imagem
+### Subir o stack completo (API + PostgreSQL + Nginx)
 
 ```bash
 # Na raiz deste diretório (e05/)
-docker build -t bella-tavola:v1 .
+# Certifique-se de que o .env existe com HF_TOKEN=hf_...
 
-# Com múltiplas tags (recomendado)
-docker build -t bella-tavola:v1 -t bella-tavola:latest .
+docker compose up           # foreground — logs visíveis
+docker compose up -d        # background (detached)
 ```
 
-### Rodar o contêiner
+A API responde via Nginx em **http://localhost** (porta 80).
 
 ```bash
-# Foreground (ver logs direto no terminal)
-docker run -p 8000:8000 --rm bella-tavola:v1
+curl http://localhost/
+curl http://localhost/pratos
 
-# Background (detached)
-docker run -d -p 8000:8000 --name bella-tavola bella-tavola:v1
+curl -X POST http://localhost/ml/predict \
+  -H "Content-Type: application/json" \
+  -d '{"valor_transacao": 150.0, "hora_transacao": 14,
+       "distancia_ultima_compra": 5.0, "tentativas_senha": 1,
+       "pais_diferente": 0}'
 ```
 
-### Verificar que a API está no ar
+### Comandos Compose essenciais
 
 ```bash
-curl http://localhost:8000/
-# Esperado: {"restaurante": "Bella Tavola", ...}
+docker compose ps                  # status dos serviços
+docker compose logs -f api         # logs da API em tempo real
+docker compose logs db             # logs do PostgreSQL
+docker compose exec api bash       # shell dentro do contêiner da API
+docker compose restart api         # reinicia só a API
 
-curl http://localhost:8000/pratos
-# Esperado: lista de pratos em JSON
+docker compose down                # para e remove contêineres (preserva volumes)
+docker compose down -v             # para, remove contêineres E volumes (dados perdidos)
 ```
 
-### Gerenciar contêineres
+### Build manual (sem Compose)
 
 ```bash
-docker ps                        # contêineres rodando
-docker ps -a                     # todos (incluindo parados)
-docker logs bella-tavola         # logs do contêiner nomeado
-docker stop bella-tavola         # parar
-docker rm bella-tavola           # remover
-docker images bella-tavola       # listar imagens e tamanhos
+docker build -t bella-tavola:v3 .
+
+# Rodar com token e volume
+docker run -p 8000:8000 --rm \
+  --env-file .env \
+  -v bella-dados:/app/data \
+  bella-tavola:v3
 ```
 
-## Por que essa ordem de instruções no Dockerfile?
+### Verificar segurança
 
-```dockerfile
-COPY requirements.txt .          # 1º: só o requirements
-RUN pip install ...              # 2º: instala dependências (camada cacheada)
-COPY . .                         # 3º: copia o código
+```bash
+# Confirmar que o processo roda como usuário não-root
+docker run --rm bella-tavola:v3 whoami
+# Esperado: appuser
+
+# Confirmar que .env não está na imagem
+docker run --rm bella-tavola:v3 find /app -name '.env'
+# Esperado: nenhuma saída
 ```
 
-O Docker cacheia camadas. Se `COPY . .` viesse antes do `pip install`,
-qualquer alteração em qualquer `.py` invalidaria o cache do `pip install`
-— e cada rebuild baixaria todas as dependências novamente (minutos vs. segundos).
+## Arquitetura dos serviços
 
-## Por que `--host 0.0.0.0` no CMD?
+```
+Usuário
+  │
+  ▼ porta 80
+┌─────────┐
+│  Nginx  │  proxy reverso
+└────┬────┘
+     │ rede interna (api:8000)
+     ▼
+┌─────────┐        ┌──────────────┐
+│   API   │──────► │  PostgreSQL  │
+│ uvicorn │        │   porta 5432 │
+└─────────┘        └──────────────┘
+```
 
-Sem esse flag, o uvicorn escuta em `127.0.0.1` (loopback **interno** ao contêiner).
-O mapeamento `-p 8000:8000` roteia para a interface de rede do contêiner —
-não para o loopback. Resultado: a porta está mapeada, mas o processo não está escutando lá.
-Com `0.0.0.0`, o uvicorn escuta em **todas** as interfaces, inclusive a que conecta ao host.
+- **Nginx** é o único serviço exposto ao host (porta 80)
+- **API** fica na rede interna do Compose — não exposta diretamente
+- **PostgreSQL** também na rede interna, acessado pela API via hostname `db`
+- Serviços se comunicam por **nome do serviço** (não `localhost`)
+
+## Decisões de design do Dockerfile
+
+### Multi-stage build
+O estágio `builder` instala as dependências (requer compiladores). O estágio `final` copia apenas os pacotes instalados — sem compiladores, sem cache, sem resíduos de build. Redução típica de 30–40% no tamanho da imagem.
+
+### Usuário não-root
+A API roda como `appuser` (sem privilégios). Se um atacante explorar uma vulnerabilidade, não terá acesso root dentro do contêiner.
+
+### Ordem das instruções (cache de layers)
+```
+COPY requirements.txt   →  pip install  →  COPY . .
+```
+Mudanças no código não reexecutam o `pip install` (que pode levar minutos). Só muda quando o `requirements.txt` muda.
+
+## Por que `localhost` não funciona entre serviços
+
+Dentro de um contêiner, `localhost` é o próprio contêiner — não o banco, não o Nginx. No Compose, use o **nome do serviço** como hostname:
+
+```
+# ERRADO
+DATABASE_URL: postgresql://bella:secreta@localhost:5432/bellatavolada
+
+# CORRETO
+DATABASE_URL: postgresql://bella:secreta@db:5432/bellatavolada
+#                                          ↑ nome do serviço no compose.yml
+```
 
 ## Exercício 9.4 — Alpine (Desafio)
 
@@ -85,6 +136,4 @@ Com `0.0.0.0`, o uvicorn escuta em **todas** as interfaces, inclusive a que cone
 docker build -f Dockerfile.alpine -t bella-tavola:alpine .
 ```
 
-Esperado: falha durante `pip install` de `scikit-learn` ou `numpy`.
-Motivo: Alpine usa `musl libc`; os wheels do PyPI são compilados para `glibc`.
-Para projetos de ML, `python:3.11-slim` (Debian) é o equilíbrio correto.
+Esperado: falha no `pip install` de `scikit-learn` ou `numpy`. Alpine usa `musl libc`; os wheels do PyPI são compilados para `glibc`. Use `python:3.11-slim` para projetos de ML.
