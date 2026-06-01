@@ -7,6 +7,7 @@
 ![GitHub Actions](https://img.shields.io/badge/GitHub_Actions-2088FF?logo=github-actions&logoColor=white)
 ![Pytest](https://img.shields.io/badge/Pytest-0A9EDC?logo=pytest&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white)
+![Docker Compose](https://img.shields.io/badge/Docker_Compose-2496ED?logo=docker&logoColor=white)
 
 Este repositório contém o sistema backend do **Bella Tavola**, um restaurante italiano digitalizado. O projeto engloba a construção de uma API RESTful modular, a integração de um modelo de Machine Learning para análise de risco/fraude hospedado no Hugging Face Hub, e um pipeline robusto de Integração Contínua (CI) automatizado.
 
@@ -28,9 +29,10 @@ Este repositório contém o sistema backend do **Bella Tavola**, um restaurante 
 - **Health Check de ML:** Rota `GET /ml/health` que atesta a disponibilidade do artefato.
 
 ### 3. Contêinerização com Docker
-- **Dockerfile otimizado:** Imagem `python:3.11-slim` com cache de layers configurado (dependências separadas do código).
-- **Build reproduzível:** Qualquer máquina com Docker reproduz o ambiente exato de produção.
-- **`.dockerignore`:** Build context enxuto — exclui `venv`, `__pycache__`, `.env` e artefatos desnecessários.
+- **Multi-stage build:** Estágio `builder` para instalar dependências; imagem final sem compiladores ou cache, com redução de 30–40% no tamanho.
+- **Usuário não-root:** A API roda como `appuser` dentro do contêiner — princípio do menor privilégio.
+- **`.dockerignore`:** Build context enxuto — `.env`, `tests/`, `*.pkl` e `__pycache__` ficam fora da imagem.
+- **Docker Compose:** Orquestração de API + PostgreSQL + Nginx com healthcheck e rede interna isolada.
 
 ### 4. Integração Contínua (CI / GitHub Actions)
 - **Qualidade de Código:** Verificações automáticas com `black` e `autoflake`.
@@ -59,9 +61,11 @@ bella-tavola-cdia-p1-main/
 │   └── requirements.txt
 ├── e04/                   # GitHub Actions (CI avançado)
 └── e05/                   # Contêinerização com Docker
-    ├── Dockerfile          # Imagem principal (python:3.11-slim)
+    ├── Dockerfile          # Multi-stage build + usuário não-root (python:3.11-slim)
     ├── Dockerfile.alpine   # Exercício 9.4 — demonstra falha com Alpine + ML
-    ├── .dockerignore       # Exclusões do build context
+    ├── .dockerignore       # Exclusões do build context (.env, tests/, *.pkl…)
+    ├── docker-compose.yml  # Orquestra API + PostgreSQL + Nginx
+    ├── nginx.conf          # Proxy reverso: porta 80 → uvicorn 8000
     ├── main.py             # Entry point (mesma API do e02)
     └── requirements.txt
 ```
