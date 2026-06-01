@@ -1,0 +1,64 @@
+services:
+
+  # ── API Bella Tavola ──────────────────────────────────────────────────────
+  api:
+    build: .                        # constrói a partir do Dockerfile neste diretório
+    # ports: removido intencionalmente — o Nginx é o único ponto de entrada público
+    # Para acessar a API diretamente (desenvolvimento): descomente a linha abaixo
+    # ports:
+    #   - "8000:8000"
+    env_file:
+      - .env                        # carrega HF_TOKEN e outras variáveis
+                                    # NUNCA commite o .env — ele está no .gitignore
+    environment:
+      # A API acessa o banco pelo NOME DO SERVIÇO como hostname, não por localhost.
+      # Dentro da rede do Compose, 'db' resolve para o IP interno do contêiner do banco.
+      # localhost dentro de um contêiner é o próprio contêiner — não o banco.
+      DATABASE_URL: postgresql://bella:secreta@db:5432/bellatavolada
+    volumes:
+      - bella-dados:/app/data       # persiste dados além do ciclo de vida do contêiner
+    depends_on:
+      db:
+        condition: service_healthy  # aguarda o healthcheck do banco passar antes de iniciar
+                                    # depends_on sem condition só garante que o contêiner
+                                    # iniciou — não que o banco está pronto para conexões
+
+  # ── PostgreSQL ────────────────────────────────────────────────────────────
+  db:
+    image: postgres:15              # imagem pronta do registry — não precisa de build local
+    environment:
+      POSTGRES_DB: bellatavolada
+      POSTGRES_USER: bella
+      POSTGRES_PASSWORD: secreta    # em produção, use secrets do Docker ou variáveis externas
+    volumes:
+      - bella-pg-data:/var/lib/postgresql/data  # persiste o banco entre restarts
+    healthcheck:
+      # pg_isready: utilitário que verifica se o PostgreSQL está aceitando conexões
+      # Sem healthcheck, o depends_on da API não saberia quando o banco está pronto,
+      # causando falha de conexão no início (race condition)
+      test: ["CMD-SHELL", "pg_isready -U bella -d bellatavolada"]
+      interval: 5s       # verifica a cada 5 segundos
+      timeout: 5s        # timeout de cada verificação
+      retries: 5         # tenta 5 vezes antes de marcar como unhealthy
+      start_period: 10s  # dá tempo extra na primeira inicialização (banco criando arquivos)
+
+  # ── Nginx — proxy reverso ─────────────────────────────────────────────────
+  nginx:
+    image: nginx:alpine             # imagem Alpine: Nginx leve, sem dependências de ML
+    ports:
+      - "80:80"                     # único ponto de entrada público
+                                    # a API fica em rede interna, não exposta diretamente
+    volumes:
+      # bind mount: o arquivo de configuração local é espelhado dentro do contêiner
+      # mudanças no nginx.conf refletem após docker compose restart nginx
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf
+    depends_on:
+      - api                         # inicia após a API subir
+
+# ── Volumes ───────────────────────────────────────────────────────────────────
+# Named volumes são gerenciados pelo Docker e persistem independente dos contêineres.
+# docker compose down       → preserva os volumes (dados seguros)
+# docker compose down -v    → REMOVE os volumes (dados perdidos permanentemente)
+volumes:
+  bella-dados:      # dados da API (banco SQLite, uploads, etc.)
+  bella-pg-data:    # dados do PostgreSQL

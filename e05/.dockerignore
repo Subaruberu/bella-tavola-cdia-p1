@@ -1,0 +1,57 @@
+# Arquivos que NÃO devem ser enviados ao build context do Docker
+# Sem este arquivo, TUDO no diretório é enviado ao daemon — incluindo itens pesados e sensíveis
+
+# Cache Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Ambiente virtual local (nunca copiar para a imagem — ela tem o próprio pip install)
+venv/
+env/
+.env
+env_ci_test/
+
+# Arquivos de desenvolvimento e testes
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# Controle de versão
+.git/
+.gitignore
+
+# Arquivos do editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Artefatos de ML — baixados do Hub em runtime, não devem entrar na imagem
+*.pkl
+*.joblib
+
+# Testes — não pertencem à imagem de produção
+tests/
+pytest.ini
+.pytest_cache/
+
+# Logs
+*.log
+
+# Cadernos Jupyter — não pertencem à imagem
+*.ipynb
+.ipynb_checkpoints/
+
+# Documentação
+*.md
+
+# O próprio dockerignore (convenção)
+.dockerignore
+
+# Arquivos de configuração local
+.env.local
+.env.*.local
