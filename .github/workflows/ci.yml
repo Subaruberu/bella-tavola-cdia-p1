@@ -9,21 +9,17 @@ on:
 jobs:
   verificar-api:
     runs-on: ubuntu-latest
-
     steps:
       - name: Baixar o codigo
         uses: actions/checkout@v4
-
       - name: Configurar Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
       - name: Instalar dependencias
         run: |
           pip install --upgrade pip
           pip install -r e02/requirements.txt
-
       - name: Rodar testes
         run: cd e02 && pytest tests/ -v --tb=short
 
@@ -31,28 +27,68 @@ jobs:
     runs-on: ubuntu-latest
     needs: verificar-api
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-
     steps:
       - name: Baixar o codigo
         uses: actions/checkout@v4
-
       - name: Configurar Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
       - name: Instalar dependencias
         run: |
           pip install --upgrade pip
           pip install -r e03/requirements.txt
-
       - name: Verificar autenticacao com Hugging Face
         run: python3 -c "import os; assert os.environ.get('HF_TOKEN'), 'HF_TOKEN nao configurado'"
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-
       - name: Rodar testes de integracao
         run: cd e03 && pytest tests/ -v --tb=short
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           HF_REPO_ID: ${{ secrets.HF_REPO_ID }}
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: integracao
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Baixar o codigo
+        uses: actions/checkout@v4
+
+      - name: Configurar Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login no Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build e push da imagem
+        uses: docker/build-push-action@v5
+        with:
+          context: ./e05
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/bella-tavola:${{ github.sha }}
+            ${{ secrets.DOCKER_USERNAME }}/bella-tavola:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  relatorio:
+    runs-on: ubuntu-latest
+    needs: docker
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Resumo do pipeline
+        run: |
+          echo "## Pipeline Bella Tavola — concluido com sucesso" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Autor:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Imagem publicada" >> $GITHUB_STEP_SUMMARY
+          echo "\`${{ secrets.DOCKER_USERNAME }}/bella-tavola:${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "\`${{ secrets.DOCKER_USERNAME }}/bella-tavola:latest\`" >> $GITHUB_STEP_SUMMARY
